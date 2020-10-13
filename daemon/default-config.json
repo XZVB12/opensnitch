@@ -1,0 +1,7 @@
+{
+    "DefaultAction": "allow",
+    "DefaultDuration": "once",
+    "InterceptUnknown": false,
+    "ProcMonitorMethod": "proc",
+    "LogLevel": 2
+}

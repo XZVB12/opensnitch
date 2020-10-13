@@ -18,6 +18,7 @@ type Packet struct {
 	Packet         gopacket.Packet
 	Mark           uint32
 	verdictChannel chan VerdictContainer
+	UID            uint32
 }
 
 func (p *Packet) SetVerdict(v Verdict) {

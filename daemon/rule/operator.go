@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/evilsocket/opensnitch/daemon/conman"
-	"github.com/evilsocket/opensnitch/daemon/core"
-	"github.com/evilsocket/opensnitch/daemon/log"
+	"github.com/gustavo-iniguez-goya/opensnitch/daemon/conman"
+	"github.com/gustavo-iniguez-goya/opensnitch/daemon/core"
+	"github.com/gustavo-iniguez-goya/opensnitch/daemon/log"
 )
 
 type Type string
@@ -37,35 +37,44 @@ const (
 type opCallback func(value string) bool
 
 type Operator struct {
-	Type    Type    `json:"type"`
-	Operand Operand `json:"operand"`
-	Data    string  `json:"data"`
-	List    []Operator  `json:"list"`
+	Type    Type       `json:"type"`
+	Operand Operand    `json:"operand"`
+	Data    string     `json:"data"`
+	List    []Operator `json:"list"`
 
 	cb opCallback
 	re *regexp.Regexp
 }
 
-func NewOperator(t Type, o Operand, data string, list []Operator) Operator {
+func NewOperator(t Type, o Operand, data string, list []Operator) (*Operator, error) {
 	op := Operator{
 		Type:    t,
 		Operand: o,
 		Data:    data,
 		List:    list,
 	}
-	op.Compile()
-	return op
+	if err := op.Compile(); err != nil {
+		log.Error("NewOperator() failed to compile:", err)
+		return nil, err
+	}
+	return &op, nil
 }
 
-func (o *Operator) Compile() {
+func (o *Operator) Compile() error {
 	if o.Type == Simple {
 		o.cb = o.simpleCmp
 	} else if o.Type == Regexp {
 		o.cb = o.reCmp
-		o.re = regexp.MustCompile(o.Data)
+		re, err := regexp.Compile(o.Data)
+		if err != nil {
+			return err
+		}
+		o.re = re
 	} else if o.Type == List {
 		o.Operand = OpList
 	}
+
+	return nil
 }
 
 func (o *Operator) String() string {
@@ -88,7 +97,9 @@ func (o *Operator) listMatch(con *conman.Connection) bool {
 	res := true
 	for i := 0; i < len(o.List); i += 1 {
 		o := o.List[i]
-		o.Compile()
+		if err := o.Compile(); err != nil {
+			return false
+		}
 		res = res && o.Match(con)
 	}
 	return res

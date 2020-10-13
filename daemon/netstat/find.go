@@ -3,10 +3,11 @@ package netstat
 import (
 	"net"
 	"strings"
-	
-	"github.com/evilsocket/opensnitch/daemon/log"
+
+	"github.com/gustavo-iniguez-goya/opensnitch/daemon/log"
 )
 
+// FindEntry looks for the connection in the list of known connections in ProcFS.
 func FindEntry(proto string, srcIP net.IP, srcPort uint, dstIP net.IP, dstPort uint) *Entry {
 	if entry := findEntryForProtocol(proto, srcIP, srcPort, dstIP, dstPort); entry != nil {
 		return entry
@@ -16,10 +17,20 @@ func FindEntry(proto string, srcIP net.IP, srcPort uint, dstIP net.IP, dstPort u
 	if strings.HasSuffix(proto, ipv6Suffix) == false {
 		otherProto := proto + ipv6Suffix
 		log.Debug("Searching for %s netstat entry instead of %s", otherProto, proto)
-		return findEntryForProtocol(otherProto, srcIP, srcPort, dstIP, dstPort)
+		if entry := findEntryForProtocol(otherProto, srcIP, srcPort, dstIP, dstPort); entry != nil {
+			return entry
+		}
 	}
-	
-	return nil;
+
+	return &Entry{
+		Proto:   proto,
+		SrcIP:   srcIP,
+		SrcPort: srcPort,
+		DstIP:   dstIP,
+		DstPort: dstPort,
+		UserId:  -1,
+		INode:   -1,
+	}
 }
 
 func findEntryForProtocol(proto string, srcIP net.IP, srcPort uint, dstIP net.IP, dstPort uint) *Entry {

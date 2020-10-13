@@ -9,6 +9,12 @@ import (
 )
 
 const (
+	MethodFtrace = "ftrace"
+	MethodProc   = "proc"
+	MethodAudit  = "audit"
+)
+
+const (
 	probeName   = "opensnitch_exec_probe"
 	syscallName = "do_execve"
 )
@@ -25,7 +31,9 @@ var (
 		"sched/sched_process_exit",
 	}
 
-	watcher = ftrace.NewProbe(probeName, syscallName, subEvents)
+	watcher       = ftrace.NewProbe(probeName, syscallName, subEvents)
+	isAvailable   = false
+	monitorMethod = MethodProc
 
 	index = make(map[int]*procData)
 	lock  = sync.RWMutex{}
@@ -99,6 +107,8 @@ func Start() (err error) {
 	watcher.Reset()
 
 	if err = watcher.Enable(); err == nil {
+		isAvailable = true
+
 		go eventConsumer()
 		// track running processes
 		if ls, err := ioutil.ReadDir("/proc/"); err == nil {
@@ -113,5 +123,10 @@ func Start() (err error) {
 }
 
 func Stop() error {
+	isAvailable = false
 	return watcher.Disable()
+}
+
+func IsWatcherAvailable() bool {
+	return isAvailable
 }
