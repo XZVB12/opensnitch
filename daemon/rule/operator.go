@@ -11,6 +11,8 @@ import (
 )
 
 type Type string
+type Sensitive bool
+type Operand string
 
 const (
 	Simple  = Type("simple")
@@ -18,8 +20,6 @@ const (
 	Complex = Type("complex") // for future use
 	List    = Type("list")
 )
-
-type Operand string
 
 const (
 	OpTrue                = Operand("true")
@@ -31,27 +31,32 @@ const (
 	OpDstIP               = Operand("dest.ip")
 	OpDstHost             = Operand("dest.host")
 	OpDstPort             = Operand("dest.port")
+	OpProto               = Operand("protocol")
 	OpList                = Operand("list")
 )
 
 type opCallback func(value string) bool
 
+// Operator represents what we want to filter of a connection, and how.
 type Operator struct {
-	Type    Type       `json:"type"`
-	Operand Operand    `json:"operand"`
-	Data    string     `json:"data"`
-	List    []Operator `json:"list"`
+	Type      Type       `json:"type"`
+	Operand   Operand    `json:"operand"`
+	Sensitive Sensitive  `json:"sensitive"`
+	Data      string     `json:"data"`
+	List      []Operator `json:"list"`
 
 	cb opCallback
 	re *regexp.Regexp
 }
 
-func NewOperator(t Type, o Operand, data string, list []Operator) (*Operator, error) {
+// NewOperator returns a new operator object
+func NewOperator(t Type, s Sensitive, o Operand, data string, list []Operator) (*Operator, error) {
 	op := Operator{
-		Type:    t,
-		Operand: o,
-		Data:    data,
-		List:    list,
+		Type:      t,
+		Sensitive: s,
+		Operand:   o,
+		Data:      data,
+		List:      list,
 	}
 	if err := op.Compile(); err != nil {
 		log.Error("NewOperator() failed to compile:", err)
@@ -60,6 +65,7 @@ func NewOperator(t Type, o Operand, data string, list []Operator) (*Operator, er
 	return &op, nil
 }
 
+// Compile translates the operator type field to its callback counterpart
 func (o *Operator) Compile() error {
 	if o.Type == Simple {
 		o.cb = o.simpleCmp
@@ -86,10 +92,16 @@ func (o *Operator) String() string {
 }
 
 func (o *Operator) simpleCmp(v string) bool {
+	if o.Sensitive == false {
+		return strings.EqualFold(v, o.Data)
+	}
 	return v == o.Data
 }
 
 func (o *Operator) reCmp(v string) bool {
+	if o.Sensitive == false {
+		v = strings.ToLower(v)
+	}
 	return o.re.MatchString(v)
 }
 
@@ -105,7 +117,9 @@ func (o *Operator) listMatch(con *conman.Connection) bool {
 	return res
 }
 
+// Match tries to match parts of a connection with the given operator.
 func (o *Operator) Match(con *conman.Connection) bool {
+
 	if o.Operand == OpTrue {
 		return true
 	} else if o.Operand == OpUserId {
@@ -120,8 +134,10 @@ func (o *Operator) Match(con *conman.Connection) bool {
 		return o.cb(envVarValue)
 	} else if o.Operand == OpDstIP {
 		return o.cb(con.DstIP.String())
-	} else if o.Operand == OpDstHost {
+	} else if o.Operand == OpDstHost && con.DstHost != "" {
 		return o.cb(con.DstHost)
+	} else if o.Operand == OpProto {
+		return o.cb(con.Protocol)
 	} else if o.Operand == OpDstPort {
 		return o.cb(fmt.Sprintf("%d", con.DstPort))
 	} else if o.Operand == OpList {

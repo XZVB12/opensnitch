@@ -1,8 +1,6 @@
 package procmon
 
 import (
-	"time"
-
 	"github.com/gustavo-iniguez-goya/opensnitch/daemon/log"
 	"github.com/gustavo-iniguez-goya/opensnitch/daemon/procmon/audit"
 )
@@ -26,13 +24,6 @@ func NewProcess(pid int, path string) *Process {
 	}
 }
 
-// Reload stops the current monitor method and starts it again.
-func Reload() {
-	End()
-	time.Sleep(1 * time.Second)
-	Init()
-}
-
 // SetMonitorMethod configures a new method for parsing connections.
 func SetMonitorMethod(newMonitorMethod string) {
 	lock.Lock()
@@ -41,33 +32,61 @@ func SetMonitorMethod(newMonitorMethod string) {
 	monitorMethod = newMonitorMethod
 }
 
+func methodIsFtrace() bool {
+	lock.RLock()
+	defer lock.RUnlock()
+
+	return monitorMethod == MethodFtrace
+}
+
+func methodIsAudit() bool {
+	lock.RLock()
+	defer lock.RUnlock()
+
+	return monitorMethod == MethodAudit
+}
+
+func methodIsProc() bool {
+	lock.RLock()
+	defer lock.RUnlock()
+
+	return monitorMethod == MethodProc
+}
+
 // End stops the way of parsing new connections.
 func End() {
-	lock.Lock()
-	defer lock.Unlock()
-
-	if monitorMethod == MethodAudit {
+	if methodIsAudit() {
 		audit.Stop()
-	} else if monitorMethod == MethodFtrace {
-		go Stop()
+	} else if methodIsFtrace() {
+		go func() {
+			if err := Stop(); err != nil {
+				log.Warning("procmon.End() stop ftrace error: %v", err)
+			}
+		}()
 	}
 }
 
 // Init starts parsing connections using the method specified.
 func Init() {
-	lock.Lock()
-	defer lock.Unlock()
+	if methodIsFtrace() {
+		err := Start()
+		if err == nil {
+			log.Info("Process monitor method ftrace")
+			return
+		}
+		log.Warning("error starting ftrace monitor method: %v", err)
 
-	if monitorMethod == MethodFtrace {
-		if err := Start(); err == nil {
+	} else if methodIsAudit() {
+		auditConn, err := audit.Start()
+		if err == nil {
+			log.Info("Process monitor method audit")
+			go audit.Reader(auditConn, (chan<- audit.Event)(audit.EventChan))
 			return
 		}
-	} else if monitorMethod == MethodAudit {
-		if c, err := audit.Start(); err == nil {
-			go audit.Reader(c, (chan<- audit.Event)(audit.EventChan))
-			return
-		}
+		log.Warning("error starting audit monitor method: %v", err)
 	}
-	log.Info("Process monitor parsing /proc")
-	monitorMethod = MethodProc
+
+	// if any of the above methods have failed, fallback to proc
+	log.Info("Process monitor method /proc")
+	SetMonitorMethod(MethodProc)
 }

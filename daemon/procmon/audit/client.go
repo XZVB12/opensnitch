@@ -8,11 +8,14 @@
 // started.
 //
 // Requisities:
-// - install auditd and audisp-plugins
+// - install auditd and audispd-plugins
 // - enable af_unix plugin /etc/audisp/plugins.d/af_unix.conf (active = yes)
 // - auditctl -a always,exit -F arch=b64 -S socket,connect,execve -k opensnitchd
 // - increase /etc/audisp/audispd.conf q_depth if there're dropped events
 // - set write_logs to no if you don't need/want audit logs to be stored in the disk.
+//
+// read messages from the pipe to verify that it's working:
+// socat unix-connect:/var/run/audispd_events stdio
 //
 // Audit event fields:
 // https://github.com/linux-audit/audit-documentation/blob/master/specs/fields/field-dictionary.csv
@@ -253,12 +256,13 @@ func Reader(r io.Reader, eventChan chan<- Event) {
 				}
 				continue
 			}
-			log.Error("AuditReader: auditd error", err)
+			log.Warning("AuditReader: auditd error", err)
 			break
 		}
 
 		parseEvent(string(buf[0:len(buf)]), eventChan)
 	}
+	log.Info("audit.Reader() closed")
 }
 
 // StartChannel creates a channel to receive events from Audit.
@@ -283,7 +287,9 @@ func connect() (net.Conn, error) {
 // Stop stops listening for events from auditd and delete the auditd rules.
 func Stop() {
 	if auditConn != nil {
-		auditConn.Close()
+		if err := auditConn.Close(); err != nil {
+			log.Warning("audit.Stop() error closing socket: %v", err)
+		}
 	}
 
 	deleteRules()
@@ -294,14 +300,13 @@ func Stop() {
 
 // Start makes a new connection to the audisp af_unix socket.
 func Start() (net.Conn, error) {
-	c, err := connect()
+	auditConn, err := connect()
 	if err != nil {
-		log.Error("auditd connection error %v", err)
+		log.Error("auditd Start() connection error %v", err)
 		deleteRules()
 		return nil, err
 	}
-	auditConn = c
 
 	configureSyscalls()
-	return c, err
+	return auditConn, err
 }
